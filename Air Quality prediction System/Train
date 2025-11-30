@@ -1,0 +1,35 @@
+# program2_train_and_save.py
+import pandas as pd
+import numpy as np
+import joblib
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier  # Changed to XGBoost
+
+# Load data
+df = pd.read_excel('AirQualityUCI.xlsx')
+df.replace(-200, np.nan, inplace=True)
+df.dropna(inplace=True)
+
+# Define target variable (Binary: Bad air if CO(GT) >= 2.0)
+df['Air_Quality'] = (df['CO(GT)'] >= 2.0).astype(int)
+
+# Prepare features and labels
+X = df.drop(columns=['Date', 'Time', 'CO(GT)', 'Air_Quality'])
+y = df['Air_Quality']
+
+# Scale features and save scaler
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Split and train model using XGBoost
+X_train, _, y_train, _ = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+model = XGBClassifier(use_label_encoder=False, eval_metric='logloss')  # XGBoost initialization
+model.fit(X_train, y_train)
+
+# Save model and scaler for later use
+joblib.dump(model, 'best_air_quality.pkl')
+joblib.dump(scaler, 'scale.pkl')
+
+print("✅ Model saved as 'best_air_quality.pkl'")
+print("✅ Scaler saved as 'scale.pkl'")

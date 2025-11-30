@@ -1,0 +1,37 @@
+# program1_compare_algorithms.py
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from xgboost import XGBClassifier
+from sklearn.metrics import accuracy_score
+
+# Load and clean data
+data = pd.read_excel('AirQualityUCI.xlsx')
+data = data.replace(-200.0, np.nan).dropna()
+# Define target: let's predict bad air quality if CO(GT) >= 2.0
+data['Bad_Air'] = (data['CO(GT)'] >= 2.0).astype(int)
+X = data.drop(columns=['Date', 'Time', 'CO(GT)', 'Bad_Air'])
+y = data['Bad_Air']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+models = {
+    'RandomForest': RandomForestClassifier(),
+    'SVM': SVC(),
+    'DecisionTree': DecisionTreeClassifier(),
+    'XGBoost': XGBClassifier(eval_metric='logloss')
+}
+
+accuracies = {}
+for name, model in models.items():
+    model.fit(X_train, y_train)
+    preds = model.predict(X_test)
+    acc = accuracy_score(y_test, preds)
+    accuracies[name] = acc
+    print(f"{name} Accuracy: {acc:.4f}")
+
+best_algorithm = max(accuracies, key=accuracies.get)
+print(f"\nBest algorithm: {best_algorithm}")

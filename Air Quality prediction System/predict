@@ -1,0 +1,93 @@
+import joblib
+import numpy as np
+
+# Load saved model and scaler
+model = joblib.load('best_air_quality.pkl')
+scaler = joblib.load('scale.pkl')
+
+# Component information: (Prompt, safe threshold, moderate threshold, health note)
+features_info = [
+    ("Carbon Monoxide Sensor (Tin Oxide – PT08.S1(CO)) [µV]", 1500, 1300,
+     "High CO levels can reduce oxygen in the blood, causing fatigue and cardiovascular stress."),
+    ("Non-Methane Hydrocarbons (NMHC(GT)) [µg/m³]", 200, 150,
+     "NMHC contributes to ozone and smog, irritating the lungs."),
+    ("Benzene (C6H6(GT)) [µg/m³]", 5, 3,
+     "Benzene is a carcinogen; long exposure affects bone marrow and immunity."),
+    ("NMHC Sensor (Titania PT08.S2) [µV]", 1200, 1000,
+     "High VOC levels can signal toxic environmental conditions and affect respiration."),
+    ("Nitric Oxides (NOx(GT)) [ppb]", 100, 80,
+     "NOx can aggravate asthma and reduce lung function."),
+    ("NOx Sensor (Tungsten PT08.S3) [µV]", 1500, 1300,
+     "High NOx sensor activity reflects combustion pollution."),
+    ("Nitrogen Dioxide (NO2(GT)) [µg/m³]", 100, 75,
+     "Elevated NO2 causes respiratory irritation and increased hospital visits."),
+    ("NO2 Sensor (Tungsten PT08.S4) [µV]", 1500, 1300,
+     "High NO2 sensor values signal air toxicity."),
+    ("Ozone Sensor (Indium PT08.S5) [µV]", 1200, 1000,
+     "Ozone at ground level can harm lungs, trigger asthma and lower immunity."),
+    ("Temperature (T) [°C]", 35, 30,
+     "High temperature intensifies respiratory reactions and pollutant effect."),
+    ("Relative Humidity (RH) [%]", 80, 60,
+     "High humidity helps allergens and particulate matter stay suspended."),
+    ("Absolute Humidity (AH) [g/m³]", 1.2, 0.9,
+     "High AH increases pollutant absorption deep into lungs.")
+]
+
+# Input collection
+print("\n🧪 Air Quality Diagnosis System")
+print("Please enter the following values one-by-one:\n")
+
+values = []
+out_moderate = []
+out_safe = []
+
+for label, safe, moderate, note in features_info:
+    while True:
+        try:
+            val = float(input(f"{label}: "))
+            values.append(val)
+            if val >= safe:
+                out_safe.append((label, val, safe, note))
+            elif val >= moderate:
+                out_moderate.append((label, val, moderate, note))
+            break
+        except ValueError:
+            print("❌ Invalid entry! Please enter a numeric value.")
+
+# Transform input and predict
+X_scaled = scaler.transform([values])
+prediction = model.predict(X_scaled)[0]
+
+# 🔍 Determine final air quality status based on feature flags
+if len(out_safe) > 0 or prediction == 1:
+    air_quality = "BAD"
+elif 1 <= len(out_moderate) <= 3:
+    air_quality = "MODERATE"
+else:
+    air_quality = "GOOD"
+
+# 🌐 Show result
+print(f"\n📊 Air Quality Classification: ✅ {air_quality}\n")
+
+# 🚦 Show threshold reports
+if air_quality == "BAD":
+    print("🚨 Components EXCEEDING SAFE thresholds:")
+    for i, (label, val, safe, comment) in enumerate(out_safe, 1):
+        print(f"{i}. {label}: {val} ≥ {safe} ❗")
+        print(f"   → {comment}")
+    print("\n⚠ Health Warning:")
+    print("- Air quality is unhealthy for all groups.")
+    print("- Limit outdoor activities; wear N95 masks if possible.\n")
+
+elif air_quality == "MODERATE":
+    print("⚠ Components ABOVE MODERATE levels (but below unsafe):")
+    for i, (label, val, mod, comment) in enumerate(out_moderate, 1):
+        print(f"{i}. {label}: {val} ≥ {mod}")
+        print(f"   → {comment}")
+    print("\nℹ️ Advisory:")
+    print("- Sensitive groups (asthma, elderly, children) may experience symptoms.")
+    print("- Consider limiting exercise outdoors.\n")
+
+else:  # GOOD
+    print("✅ All air quality indicators are within acceptable ranges.")
+    print("🙂 Enjoy the fresh air and stay healthy!\n")
