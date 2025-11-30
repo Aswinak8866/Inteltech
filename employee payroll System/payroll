@@ -1,0 +1,286 @@
+import java.util.*;
+
+// Employee Base Class
+class Employee {
+    private int id;
+    private String name;
+    private String department;
+    protected double basicSalary;
+    
+    public Employee(int id, String name, String department, double basicSalary) {
+        this.id = id;
+        this.name = name;
+        this.department = department;
+        this.basicSalary = basicSalary;
+    }
+    
+    public int getId() { return id; }
+    public String getName() { return name; }
+    public String getDepartment() { return department; }
+    public double getBasicSalary() { return basicSalary; }
+    
+    public void setName(String name) { this.name = name; }
+    public void setDepartment(String department) { this.department = department; }
+    public void setBasicSalary(double basicSalary) { this.basicSalary = basicSalary; }
+    
+    public double calculateSalary() {
+        return basicSalary;
+    }
+    
+    public void displayDetails() {
+        System.out.println("\n--- Employee Details ---");
+        System.out.println("ID: " + id);
+        System.out.println("Name: " + name);
+        System.out.println("Department: " + department);
+        System.out.println("Basic Salary: $" + String.format("%.2f", basicSalary));
+    }
+}
+
+// Full-Time Employee
+class FullTimeEmployee extends Employee {
+    private double bonus;
+    private double benefits;
+    
+    public FullTimeEmployee(int id, String name, String department, double basicSalary, double bonus, double benefits) {
+        super(id, name, department, basicSalary);
+        this.bonus = bonus;
+        this.benefits = benefits;
+    }
+    
+    @Override
+    public double calculateSalary() {
+        return basicSalary + bonus + benefits;
+    }
+    
+    @Override
+    public void displayDetails() {
+        super.displayDetails();
+        System.out.println("Employee Type: Full-Time");
+        System.out.println("Bonus: $" + String.format("%.2f", bonus));
+        System.out.println("Benefits: $" + String.format("%.2f", benefits));
+        System.out.println("Total Salary: $" + String.format("%.2f", calculateSalary()));
+    }
+}
+
+// Part-Time Employee
+class PartTimeEmployee extends Employee {
+    private int hoursWorked;
+    private double hourlyRate;
+    
+    public PartTimeEmployee(int id, String name, String department, int hoursWorked, double hourlyRate) {
+        super(id, name, department, 0);
+        this.hoursWorked = hoursWorked;
+        this.hourlyRate = hourlyRate;
+    }
+    
+    @Override
+    public double calculateSalary() {
+        return hoursWorked * hourlyRate;
+    }
+    
+    @Override
+    public void displayDetails() {
+        super.displayDetails();
+        System.out.println("Employee Type: Part-Time");
+        System.out.println("Hours Worked: " + hoursWorked);
+        System.out.println("Hourly Rate: $" + String.format("%.2f", hourlyRate));
+        System.out.println("Total Salary: $" + String.format("%.2f", calculateSalary()));
+    }
+}
+
+// Payroll System Manager
+class PayrollSystem {
+    private ArrayList<Employee> employees;
+    
+    public PayrollSystem() {
+        employees = new ArrayList<>();
+    }
+    
+    public void addEmployee(Employee employee) {
+        employees.add(employee);
+        System.out.println("\nEmployee added successfully!");
+    }
+    
+    public void removeEmployee(int id) {
+        Employee toRemove = null;
+        for (Employee emp : employees) {
+            if (emp.getId() == id) {
+                toRemove = emp;
+                break;
+            }
+        }
+        if (toRemove != null) {
+            employees.remove(toRemove);
+            System.out.println("\nEmployee removed successfully!");
+        } else {
+            System.out.println("\nEmployee not found!");
+        }
+    }
+    
+    public void displayAllEmployees() {
+        if (employees.isEmpty()) {
+            System.out.println("\nNo employees in the system.");
+            return;
+        }
+        System.out.println("\n========== ALL EMPLOYEES ==========");
+        for (Employee emp : employees) {
+            emp.displayDetails();
+        }
+    }
+    
+    public void searchEmployee(int id) {
+        for (Employee emp : employees) {
+            if (emp.getId() == id) {
+                emp.displayDetails();
+                return;
+            }
+        }
+        System.out.println("\nEmployee not found!");
+    }
+    
+    public void generatePayrollReport() {
+        if (employees.isEmpty()) {
+            System.out.println("\nNo employees to generate report.");
+            return;
+        }
+        
+        System.out.println("\n========== PAYROLL REPORT ==========");
+        double totalPayroll = 0;
+        
+        for (Employee emp : employees) {
+            double salary = emp.calculateSalary();
+            totalPayroll += salary;
+            System.out.println("ID: " + emp.getId() + " | Name: " + emp.getName() + 
+                             " | Salary: $" + String.format("%.2f", salary));
+        }
+        
+        System.out.println("\nTotal Payroll: $" + String.format("%.2f", totalPayroll));
+        System.out.println("Total Employees: " + employees.size());
+    }
+}
+
+// Main Class
+public class EmployeePayrollSystem {
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        PayrollSystem payrollSystem = new PayrollSystem();
+        
+        while (true) {
+            System.out.println("\n========== EMPLOYEE PAYROLL SYSTEM ==========");
+            System.out.println("1. Add Full-Time Employee");
+            System.out.println("2. Add Part-Time Employee");
+            System.out.println("3. Remove Employee");
+            System.out.println("4. Search Employee");
+            System.out.println("5. Display All Employees");
+            System.out.println("6. Generate Payroll Report");
+            System.out.println("7. Exit");
+            System.out.print("Enter your choice: ");
+            
+            int choice = 0;
+            try {
+                choice = scanner.nextInt();
+                scanner.nextLine(); // Clear buffer
+            } catch (InputMismatchException e) {
+                System.out.println("\nInvalid input! Please enter a number.");
+                scanner.nextLine(); // Clear invalid input
+                continue;
+            }
+            
+            switch (choice) {
+                case 1:
+                    try {
+                        System.out.print("Enter Employee ID: ");
+                        int id = scanner.nextInt();
+                        scanner.nextLine();
+                        
+                        System.out.print("Enter Name: ");
+                        String name = scanner.nextLine();
+                        
+                        System.out.print("Enter Department: ");
+                        String dept = scanner.nextLine();
+                        
+                        System.out.print("Enter Basic Salary: ");
+                        double salary = scanner.nextDouble();
+                        
+                        System.out.print("Enter Bonus: ");
+                        double bonus = scanner.nextDouble();
+                        
+                        System.out.print("Enter Benefits: ");
+                        double benefits = scanner.nextDouble();
+                        
+                        FullTimeEmployee fte = new FullTimeEmployee(id, name, dept, salary, bonus, benefits);
+                        payrollSystem.addEmployee(fte);
+                    } catch (InputMismatchException e) {
+                        System.out.println("\nInvalid input!");
+                        scanner.nextLine();
+                    }
+                    break;
+                    
+                case 2:
+                    try {
+                        System.out.print("Enter Employee ID: ");
+                        int id = scanner.nextInt();
+                        scanner.nextLine();
+                        
+                        System.out.print("Enter Name: ");
+                        String name = scanner.nextLine();
+                        
+                        System.out.print("Enter Department: ");
+                        String dept = scanner.nextLine();
+                        
+                        System.out.print("Enter Hours Worked: ");
+                        int hours = scanner.nextInt();
+                        
+                        System.out.print("Enter Hourly Rate: ");
+                        double rate = scanner.nextDouble();
+                        
+                        PartTimeEmployee pte = new PartTimeEmployee(id, name, dept, hours, rate);
+                        payrollSystem.addEmployee(pte);
+                    } catch (InputMismatchException e) {
+                        System.out.println("\nInvalid input!");
+                        scanner.nextLine();
+                    }
+                    break;
+                    
+                case 3:
+                    try {
+                        System.out.print("Enter Employee ID to remove: ");
+                        int removeId = scanner.nextInt();
+                        payrollSystem.removeEmployee(removeId);
+                    } catch (InputMismatchException e) {
+                        System.out.println("\nInvalid input!");
+                        scanner.nextLine();
+                    }
+                    break;
+                    
+                case 4:
+                    try {
+                        System.out.print("Enter Employee ID to search: ");
+                        int searchId = scanner.nextInt();
+                        payrollSystem.searchEmployee(searchId);
+                    } catch (InputMismatchException e) {
+                        System.out.println("\nInvalid input!");
+                        scanner.nextLine();
+                    }
+                    break;
+                    
+                case 5:
+                    payrollSystem.displayAllEmployees();
+                    break;
+                    
+                case 6:
+                    payrollSystem.generatePayrollReport();
+                    break;
+                    
+                case 7:
+                    System.out.println("\nThank you for using Employee Payroll System!");
+                    scanner.close();
+                    System.exit(0);
+                    break;
+                    
+                default:
+                    System.out.println("\nInvalid choice! Please try again.");
+            }
+        }
+    }
+}
