@@ -1,0 +1,692 @@
+import streamlit as st
+import agent
+import tools.data_tools as dt
+import tools.clean_tools as ct
+import tools.transform_tools as tt
+import tools.pipeline_tools as pt
+import os
+
+st.set_page_config(page_title="DE AI Agent", page_icon="⚙️", layout="wide")
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+    background-color: #1a1a1a !important; color: #e8e3dc !important; font-family: 'Sora', sans-serif !important; }
+#MainMenu, footer, header, [data-testid="stToolbar"] { display: none !important; }
+[data-testid="stSidebar"] { background-color: #111111 !important; border-right: 1px solid #2a2a2a !important; }
+[data-testid="stSidebar"] * { color: #c9c3bb !important; }
+[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 { color: #e8e3dc !important; font-size: 0.85rem !important; font-weight: 600 !important; text-transform: uppercase !important; letter-spacing: 0.08em !important; }
+[data-testid="stSidebar"] .stButton > button { background-color: #2a2a2a !important; color: #e8e3dc !important; border: 1px solid #383838 !important; border-radius: 8px !important; width: 100% !important; }
+[data-testid="stSidebar"] .stButton > button:hover { border-color: #d4975a !important; color: #d4975a !important; }
+[data-testid="stSidebar"] [data-testid="stMetricValue"] { font-family: 'JetBrains Mono', monospace !important; color: #d4975a !important; }
+[data-testid="stMainBlockContainer"] { max-width: 780px !important; margin: 0 auto !important; padding: 2rem 1.5rem 6rem !important; }
+[data-testid="stMainBlockContainer"] h1 { font-size: 1.6rem !important; font-weight: 600 !important; color: #e8e3dc !important; letter-spacing: -0.02em !important; }
+hr { border-color: #2a2a2a !important; }
+[data-testid="stChatInput"] textarea { background-color: #222 !important; border: 1px solid #333 !important; border-radius: 12px !important; color: #e8e3dc !important; }
+[data-testid="stChatInput"] textarea:focus { border-color: #d4975a !important; }
+[data-testid="stChatInput"] textarea::placeholder { color: #555 !important; }
+[data-testid="stChatInput"] button { background-color: #d4975a !important; border-radius: 8px !important; border: none !important; color: #111 !important; }
+[data-testid="chatAvatarIcon-user"] { background-color: #d4975a !important; color: #111 !important; }
+[data-testid="chatAvatarIcon-assistant"] { background-color: #2a2a2a !important; border: 1px solid #383838 !important; }
+[data-testid="stDownloadButton"] > button { background-color: #222 !important; color: #d4975a !important; border: 1px solid #d4975a !important; border-radius: 8px !important; }
+[data-testid="stDownloadButton"] > button:hover { background-color: #d4975a !important; color: #111 !important; }
+code { background: #222 !important; color: #d4975a !important; border-radius: 4px !important; font-family: 'JetBrains Mono', monospace !important; }
+::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: #1a1a1a; } ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+</style>
+""", unsafe_allow_html=True)
+
+if dt.store["df"] is None and "loaded_filename" in st.session_state:
+    _, restored = dt.load_saved_dataset(st.session_state["loaded_filename"])
+    if restored is not None:
+        dt.store["df"] = restored
+        dt.store["filename"] = st.session_state["loaded_filename"]
+        st.session_state.data_info = f"Rows:{restored.shape[0]}, Cols:{restored.shape[1]}, Columns:{list(restored.columns)}"
+
+if "messages" not in st.session_state:
+    st.session_state.messages = [{"role":"assistant","content":"👋 Hello! I am your **Data Engineering AI Agent**!\n\nSay **'push to hdfs'** for Parquet\nSay **'push to hdfs iceberg'** for Iceberg\nSay **'push to sql'** to push to MySQL\nSay **'run on airflow'** to run immediately\nSay **'run on airflow in schedule'** to set a schedule! 🚀"}]
+
+if "data_info" not in st.session_state:
+    st.session_state.data_info = "No data loaded."
+if "pipeline_state" not in st.session_state:
+    st.session_state.pipeline_state = None
+if "pipeline_data" not in st.session_state:
+    st.session_state.pipeline_data = {}
+
+def parse_hdfs_path(user_input):
+    user_input = user_input.strip().replace("http://","hdfs://").replace("https://","hdfs://")
+    if not user_input.startswith("hdfs://"):
+        user_input = f"hdfs://localhost:9000/{user_input.strip('/')}"
+    parts = user_input.rstrip("/").rsplit("/", 1)
+    hdfs_base = parts[0]
+    name = parts[1].replace("-","_").replace(".","_").lower() if len(parts) > 1 else "data"
+    return user_input, hdfs_base, name
+
+def render_schedule_picker():
+    st.markdown("### ⏰ Pick Your Schedule")
+    r1c1, r1c2, r1c3 = st.columns(3)
+    with r1c1:
+        if st.button("▶️ Once Now", key="sp1", use_container_width=True):
+            st.session_state["picked_schedule"] = "@once"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    with r1c2:
+        if st.button("🕐 Every Hour", key="sp2", use_container_width=True):
+            st.session_state["picked_schedule"] = "@hourly"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    with r1c3:
+        if st.button("📅 Every Day", key="sp3", use_container_width=True):
+            st.session_state["picked_schedule"] = "@daily"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    r2c1, r2c2, r2c3 = st.columns(3)
+    with r2c1:
+        if st.button("📆 Every Week", key="sp4", use_container_width=True):
+            st.session_state["picked_schedule"] = "@weekly"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    with r2c2:
+        if st.button("🗓️ Every Month", key="sp5", use_container_width=True):
+            st.session_state["picked_schedule"] = "@monthly"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    with r2c3:
+        if st.button("⏱️ Every 5 Min", key="sp6", use_container_width=True):
+            st.session_state["picked_schedule"] = "*/5 * * * *"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    st.markdown("**🕐 Custom Daily Time:**")
+    cc1, cc2, cc3 = st.columns([2, 2, 3])
+    with cc1:
+        c_hr = st.selectbox("Hour", list(range(0, 24)), index=9, key="c_hr")
+    with cc2:
+        c_mn = st.selectbox("Minute", list(range(0, 60)), key="c_mn")
+    with cc3:
+        ampm = "AM" if c_hr < 12 else "PM"
+        h12 = c_hr if c_hr <= 12 else c_hr - 12
+        st.markdown(f"<br>🕐 **{h12}:{c_mn:02d} {ampm}**", unsafe_allow_html=True)
+    st.markdown("**📅 Run this time every:**")
+    fc1, fc2, fc3, fc4 = st.columns(4)
+    with fc1:
+        if st.button("📅 Every Day", key="sp_daily", use_container_width=True):
+            st.session_state["picked_schedule"] = f"{c_mn} {c_hr} * * *"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    with fc2:
+        if st.button("📆 Every Week", key="sp_weekly", use_container_width=True):
+            st.session_state["picked_schedule"] = f"{c_mn} {c_hr} * * 1"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    with fc3:
+        if st.button("🗓️ Every Month", key="sp_monthly", use_container_width=True):
+            st.session_state["picked_schedule"] = f"{c_mn} {c_hr} 1 * *"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    with fc4:
+        if st.button("📅 Weekdays Only", key="sp_weekday", use_container_width=True):
+            st.session_state["picked_schedule"] = f"{c_mn} {c_hr} * * 1-5"
+            st.session_state["show_schedule_picker"] = False
+            st.rerun()
+    st.markdown("---")
+
+with st.sidebar:
+    st.title("⚙️ DE AI Agent")
+    st.divider()
+    st.subheader("📁 Upload Dataset")
+    uploaded = st.file_uploader("CSV / Excel / JSON", type=["csv","xlsx","xls","json"])
+    if uploaded:
+        msg, df = dt.load_data(uploaded)
+        if df is not None:
+            st.session_state.data_info = f"Rows:{df.shape[0]}, Cols:{df.shape[1]}, Columns:{list(df.columns)}, Nulls:{df.isnull().sum().sum()}, Duplicates:{df.duplicated().sum()}"
+            st.session_state["loaded_filename"] = uploaded.name.rsplit(".",1)[0] + ".csv"
+            st.success("✅ Loaded & Saved!")
+    if dt.store["df"] is not None:
+        df = dt.store["df"]
+        st.divider()
+        st.subheader("📊 Dataset Info")
+        st.metric("Rows", df.shape[0])
+        st.metric("Columns", df.shape[1])
+        st.metric("Nulls", int(df.isnull().sum().sum()))
+        st.metric("Duplicates", int(df.duplicated().sum()))
+        st.divider()
+        st.subheader("💾 Export")
+        c1,c2,c3 = st.columns(3)
+        with c1:
+            if st.button("CSV"):
+                dt.export_data("csv"); st.success("✅")
+        with c2:
+            if st.button("Excel"):
+                dt.export_data("xlsx"); st.success("✅")
+        with c3:
+            if st.button("JSON"):
+                dt.export_data("json"); st.success("✅")
+    st.divider()
+    st.subheader("🗄️ MySQL Table Lookup")
+    mysql_table_input = st.text_input("Table name:", placeholder="e.g. sales_prices", key="mysql_lookup_input")
+    if st.button("🔍 Check Table", key="mysql_check_btn"):
+        if mysql_table_input.strip():
+            try:
+                import sqlalchemy
+                engine = sqlalchemy.create_engine("mysql+pymysql://root:@localhost/de_agent_db")
+                with engine.connect() as conn:
+                    result = conn.execute(sqlalchemy.text(f"SELECT COUNT(*) FROM `{mysql_table_input.strip()}`"))
+                    count = result.fetchone()[0]
+                    st.success(f"✅ Found! {count} rows")
+                    st.session_state["mysql_selected_table"] = mysql_table_input.strip()
+                    st.session_state["mysql_selected_db"] = "de_agent_db"
+            except Exception as e:
+                err = str(e)
+                if "doesn't exist" in err or "Table" in err:
+                    st.error("❌ No data found")
+                else:
+                    st.error(f"❌ {err}")
+        else:
+            st.warning("Please enter a table name")
+    if "mysql_selected_table" in st.session_state and st.session_state["mysql_selected_table"]:
+        st.info(f"📋 Selected: `{st.session_state['mysql_selected_table']}`")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📤 → Parquet", key="mysql_to_parquet"):
+                try:
+                    import sqlalchemy, pandas as pd
+                    engine = sqlalchemy.create_engine(f"mysql+pymysql://root:@localhost/{st.session_state['mysql_selected_db']}")
+                    df = pd.read_sql(f"SELECT * FROM `{st.session_state['mysql_selected_table']}`", engine)
+                    dt.store["df"] = df
+                    dt.store["filename"] = st.session_state["mysql_selected_table"] + ".csv"
+                    st.session_state.data_info = f"Rows:{df.shape[0]}, Cols:{df.shape[1]}, Columns:{list(df.columns)}"
+                    st.session_state["loaded_filename"] = st.session_state["mysql_selected_table"] + ".csv"
+                    st.session_state.pipeline_state = "WAIT_PARQUET_FULLPATH"
+                    st.session_state.messages.append({"role":"assistant","content":f"✅ Loaded `{st.session_state['mysql_selected_table']}` from MySQL ({df.shape[0]} rows)\n\n📁 Enter full HDFS path:\n`hdfs://localhost:9000/path/folder/filename`"})
+                    st.session_state["mysql_selected_table"] = ""
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ {e}")
+        with col2:
+            if st.button("🧊 → Iceberg", key="mysql_to_iceberg"):
+                try:
+                    import sqlalchemy, pandas as pd
+                    engine = sqlalchemy.create_engine(f"mysql+pymysql://root:@localhost/{st.session_state['mysql_selected_db']}")
+                    df = pd.read_sql(f"SELECT * FROM `{st.session_state['mysql_selected_table']}`", engine)
+                    dt.store["df"] = df
+                    dt.store["filename"] = st.session_state["mysql_selected_table"] + ".csv"
+                    st.session_state.data_info = f"Rows:{df.shape[0]}, Cols:{df.shape[1]}, Columns:{list(df.columns)}"
+                    st.session_state["loaded_filename"] = st.session_state["mysql_selected_table"] + ".csv"
+                    st.session_state.pipeline_state = "WAIT_SQL_ICEBERG_PATH"
+                    st.session_state.messages.append({"role":"assistant","content":f"✅ Loaded `{st.session_state['mysql_selected_table']}` from MySQL ({df.shape[0]} rows)\n\n📁 **Step 1:** Enter full HDFS path:\n`hdfs://localhost:9000/path/folder/tablename`"})
+                    st.session_state["mysql_selected_table"] = ""
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ {e}")
+    st.divider()
+    st.subheader("💡 Try saying:")
+    st.markdown("- *push to hdfs* → Parquet\n- *push to hdfs iceberg* → Iceberg\n- *push to sql* → MySQL\n- *run on airflow* → runs immediately\n- *run on airflow in schedule* → set time\n- *load mysql table*\n- *clean null values*\n- *filter Age > 30*\n- *sort by Salary desc*\n- *detect schema*")
+
+st.title("⚙️ Data Engineering AI Agent")
+st.caption("HDFS • Iceberg • Airflow • MySQL")
+st.divider()
+
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        if "dataframe" in msg:
+            st.dataframe(msg["dataframe"], use_container_width=True)
+        if "filepath" in msg and msg["filepath"] and os.path.exists(msg["filepath"]):
+            with open(msg["filepath"], "rb") as f:
+                st.download_button(f"⬇️ Download {os.path.basename(msg['filepath'])}", f.read(), file_name=os.path.basename(msg["filepath"]))
+
+# Show Run Now or Schedule choice buttons
+if st.session_state.get("show_run_choice") and st.session_state.pipeline_state == "WAIT_SQL_ICEBERG_RUN_CHOICE":
+    st.markdown("### ⚡ How do you want to run?")
+    rc1, rc2 = st.columns(2)
+    with rc1:
+        if st.button("▶️ Run on Airflow Now", key="run_now_btn", use_container_width=True):
+            st.session_state["show_run_choice"] = False
+            st.session_state.pipeline_state = None
+            with st.spinner("🚀 Running on Airflow now..."):
+                msg_text, result_file = pt.run_full_pipeline(
+                    st.session_state.pipeline_data.get("hdfs_path","hdfs://localhost:9000/data"),
+                    st.session_state.pipeline_data.get("table_name","data"),
+                    st.session_state.pipeline_data.get("dag_name","my_dag"),
+                    "@once"
+                )
+            st.session_state.messages.append({"role":"assistant","content":msg_text,"filepath":result_file})
+            st.session_state.pipeline_data = {}
+            st.rerun()
+    with rc2:
+        if st.button("⏰ Run on Schedule", key="run_schedule_btn", use_container_width=True):
+            st.session_state["show_run_choice"] = False
+            st.session_state["show_schedule_picker"] = True
+            st.session_state.pipeline_state = "WAIT_SQL_ICEBERG_SCHEDULE"
+            st.rerun()
+    st.markdown("---")
+
+# Show schedule picker for SQL iceberg flow with custom time + frequency
+if st.session_state.get("show_schedule_picker") and st.session_state.pipeline_state == "WAIT_SQL_ICEBERG_SCHEDULE":
+    st.markdown("### ⏰ Pick Your Schedule")
+    # Quick buttons row 1
+    qc1, qc2, qc3 = st.columns(3)
+    with qc1:
+        if st.button("▶️ Once Now", key="sq1", use_container_width=True):
+            st.session_state["picked_schedule"] = "@once"
+            st.rerun()
+    with qc2:
+        if st.button("🕐 Every Hour", key="sq2", use_container_width=True):
+            st.session_state["picked_schedule"] = "@hourly"
+            st.rerun()
+    with qc3:
+        if st.button("📅 Every Day", key="sq3", use_container_width=True):
+            st.session_state["picked_schedule"] = "@daily"
+            st.rerun()
+    # Custom time section
+    st.markdown("**🕐 Set Custom Time:**")
+    tc1, tc2 = st.columns(2)
+    with tc1:
+        c_hr = st.number_input("Hour (0-23)", min_value=0, max_value=23, value=9, key="sql_hr")
+    with tc2:
+        c_mn = st.number_input("Minute (0-59)", min_value=0, max_value=59, value=0, key="sql_mn")
+    ampm = "AM" if c_hr < 12 else "PM"
+    h12 = c_hr if c_hr <= 12 else c_hr - 12
+    st.markdown(f"🕐 **Time set: {h12}:{c_mn:02d} {ampm}**")
+    st.markdown("**📅 Run this time every:**")
+    fc1, fc2, fc3, fc4 = st.columns(4)
+    with fc1:
+        if st.button("📅 Every Day", key="sq_daily", use_container_width=True):
+            st.session_state["picked_schedule"] = f"{c_mn} {c_hr} * * *"
+            st.rerun()
+    with fc2:
+        if st.button("📆 Every Week", key="sq_weekly", use_container_width=True):
+            st.session_state["picked_schedule"] = f"{c_mn} {c_hr} * * 1"
+            st.rerun()
+    with fc3:
+        if st.button("🗓️ Every Month", key="sq_monthly", use_container_width=True):
+            st.session_state["picked_schedule"] = f"{c_mn} {c_hr} 1 * *"
+            st.rerun()
+    with fc4:
+        if st.button("📅 Weekdays", key="sq_weekday", use_container_width=True):
+            st.session_state["picked_schedule"] = f"{c_mn} {c_hr} * * 1-5"
+            st.rerun()
+    st.markdown("---")
+
+if st.session_state.get("show_schedule_picker") and st.session_state.pipeline_state in ["WAIT_AIRFLOW_SCHEDULE_INPUT","WAIT_AIRFLOW_SCHEDULE_TIME","WAIT_SCHEDULE"]:
+    render_schedule_picker()
+
+if st.session_state.get("picked_schedule") and st.session_state.pipeline_state in ["WAIT_AIRFLOW_SCHEDULE_INPUT","WAIT_AIRFLOW_SCHEDULE_TIME","WAIT_SCHEDULE","WAIT_SQL_ICEBERG_SCHEDULE"]:
+    schedule = st.session_state.pop("picked_schedule")
+    st.session_state["show_schedule_picker"] = False
+    st.session_state.pipeline_state = None
+    with st.chat_message("assistant"):
+        st.markdown(f"✅ Schedule: `{schedule}`\n\n🚀 Running on Airflow now...")
+        with st.spinner("🚀 Running pipeline on Airflow..."):
+            msg_text, result_file = pt.run_full_pipeline(
+                st.session_state.pipeline_data.get("hdfs_path","hdfs://localhost:9000/data"),
+                st.session_state.pipeline_data.get("table_name","data"),
+                st.session_state.pipeline_data.get("dag_name","my_dag"),
+                schedule
+            )
+        st.markdown(msg_text)
+        st.session_state.messages.append({"role":"assistant","content":f"✅ Schedule: {schedule}\n\n"+msg_text,"filepath":result_file})
+        st.session_state.pipeline_data = {}
+    st.rerun()
+
+if prompt := st.chat_input("Ask me anything..."):
+    if dt.store["df"] is None and "loaded_filename" in st.session_state:
+        _, restored = dt.load_saved_dataset(st.session_state["loaded_filename"])
+        if restored is not None:
+            dt.store["df"] = restored
+            dt.store["filename"] = st.session_state["loaded_filename"]
+
+    st.session_state.messages.append({"role":"user","content":prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        msg_text = ""
+        result_df = None
+        result_file = None
+        state = st.session_state.pipeline_state
+
+        if state == "WAIT_ICEBERG_FULLPATH":
+            full, hdfs_base, table_name = parse_hdfs_path(prompt)
+            st.session_state.pipeline_data["hdfs_path"] = hdfs_base
+            st.session_state.pipeline_data["table_name"] = table_name
+            st.session_state.pipeline_state = None
+            st.markdown(f"✅ Path: `{full}`\n\n⚡ Storing to HDFS as Iceberg...")
+            with st.spinner("📦 Storing to HDFS in Iceberg format..."):
+                msg_text, result_file = pt.store_to_hdfs_iceberg(hdfs_base, table_name)
+            msg_text += "\n\n✈️ **Do you want to run this on Airflow?** (yes / no)"
+            st.session_state.pipeline_state = "WAIT_AIRFLOW_CONFIRM"
+
+        elif state == "WAIT_SQL_ICEBERG_PATH":
+            full, hdfs_base, table_name = parse_hdfs_path(prompt)
+            st.session_state.pipeline_data["hdfs_path"] = hdfs_base
+            st.session_state.pipeline_data["table_name"] = table_name
+            st.session_state.pipeline_state = "WAIT_SQL_ICEBERG_DAG"
+            msg_text = f"✅ Path: `{full}`\n\n✈️ **Step 2:** What should the Airflow DAG be named?"
+
+        elif state == "WAIT_SQL_ICEBERG_DAG":
+            dag_name = prompt.strip().replace(".py","").replace(" ","_").replace("-","_").replace(".","_")
+            st.session_state.pipeline_data["dag_name"] = dag_name
+            st.session_state.pipeline_state = "WAIT_SQL_ICEBERG_RUN_CHOICE"
+            st.session_state["show_run_choice"] = True
+            st.session_state.messages.append({"role":"assistant","content":f"✅ DAG: `{dag_name}`\n\n⚡ **Step 3:** How do you want to run it?","filepath":None})
+            st.rerun()
+
+        elif state == "WAIT_SQL_ICEBERG_SCHEDULE":
+            if st.session_state.get("picked_schedule"):
+                schedule = st.session_state.pop("picked_schedule")
+                st.session_state["show_schedule_picker"] = False
+                st.session_state["show_run_choice"] = False
+                st.session_state.pipeline_state = None
+                st.markdown(f"✅ Schedule: `{schedule}`\n\n🚀 Running on Airflow...")
+                with st.spinner("🚀 Running pipeline..."):
+                    msg_text, result_file = pt.run_full_pipeline(
+                        st.session_state.pipeline_data.get("hdfs_path","hdfs://localhost:9000/data"),
+                        st.session_state.pipeline_data.get("table_name","data"),
+                        st.session_state.pipeline_data.get("dag_name","my_dag"),
+                        schedule
+                    )
+                st.session_state.messages.append({"role":"assistant","content":msg_text,"filepath":result_file})
+                st.session_state.pipeline_data = {}
+                st.rerun()
+            else:
+                msg_text = "⏰ Please pick a schedule below ↓"
+
+        elif state == "WAIT_AIRFLOW_CONFIRM":
+            if prompt.strip().lower() in ["yes","y","yeah","yep","ok","sure"]:
+                st.session_state.pipeline_state = "WAIT_AIRFLOW_DAG_NAME"
+                msg_text = "✈️ **What should the Airflow DAG be named?**"
+            else:
+                st.session_state.pipeline_state = None
+                st.session_state.pipeline_data = {}
+                msg_text = "✅ Done! Data stored in Iceberg format."
+
+        elif state == "WAIT_AIRFLOW_DAG_NAME":
+            dag_name = prompt.strip().replace(".py","").replace(" ","_").replace("-","_").replace(".","_")
+            st.session_state.pipeline_data["dag_name"] = dag_name
+            st.session_state.pipeline_state = "WAIT_AIRFLOW_SCHEDULE_TIME"
+            st.session_state["show_schedule_picker"] = True
+            st.session_state.messages.append({"role":"assistant","content":f"✅ DAG: `{dag_name}`\n\n⏰ **Pick a schedule below ↓**","filepath":None})
+            st.rerun()
+
+        elif state == "WAIT_AIRFLOW_SCHEDULE_TIME":
+            if st.session_state.get("picked_schedule"):
+                schedule = st.session_state["picked_schedule"]
+                st.session_state["picked_schedule"] = ""
+                st.session_state.pipeline_state = None
+                st.markdown(f"✅ Schedule: `{schedule}`\n\n🚀 Submitting to Airflow...")
+                with st.spinner("🚀 Running pipeline on Airflow..."):
+                    msg_text, result_file = pt.run_full_pipeline(
+                        st.session_state.pipeline_data.get("hdfs_path","hdfs://localhost:9000/data"),
+                        st.session_state.pipeline_data.get("table_name","data"),
+                        st.session_state.pipeline_data.get("dag_name","my_dag"),
+                        schedule
+                    )
+                st.session_state.pipeline_data = {}
+            else:
+                msg_text = "⏰ Please **pick a schedule** using the buttons above ↑"
+
+        elif state == "WAIT_PARQUET_FULLPATH":
+            full, hdfs_base, file_name = parse_hdfs_path(prompt)
+            st.session_state.pipeline_state = None
+            st.markdown(f"✅ Path: `{full}`\n\n⚡ Pushing to HDFS as Parquet...")
+            with st.spinner("📤 Storing to HDFS as Parquet..."):
+                msg_text, result_file = pt.store_to_hdfs_parquet(hdfs_base, file_name)
+            st.session_state.pipeline_data = {}
+
+        elif state == "WAIT_HDFS_NORMAL_FOLDER":
+            user_input = prompt.strip()
+            st.session_state.pipeline_state = None
+            if user_input.startswith("hdfs://"):
+                hdfs_path = user_input
+                folder = user_input.rstrip("/").split("/")[-1].replace(" ","_").lower()
+            else:
+                folder = user_input.replace(" ","_").lower()
+                hdfs_path = f"hdfs://localhost:9000/data/{folder}"
+            st.markdown(f"✅ Path: `{hdfs_path}`\n\n⚡ Pushing to HDFS as Parquet...")
+            with st.spinner("📤 Storing to HDFS as Parquet..."):
+                msg_text, result_file = pt.store_to_hdfs_parquet(hdfs_path, folder)
+            st.session_state.pipeline_data = {}
+
+        elif state == "WAIT_AIRFLOW_IMMEDIATE_PATH":
+            full, hdfs_base, table_name = parse_hdfs_path(prompt)
+            st.session_state.pipeline_data["hdfs_path"] = hdfs_base
+            st.session_state.pipeline_data["table_name"] = table_name
+            st.session_state.pipeline_state = "WAIT_AIRFLOW_IMMEDIATE_DAG"
+            msg_text = f"✅ Path: `{full}`\n\n✈️ **What should the Airflow DAG be named?**"
+
+        elif state == "WAIT_AIRFLOW_IMMEDIATE_DAG":
+            dag_name = prompt.strip().replace(".py","").replace(" ","_").replace("-","_").replace(".","_")
+            st.session_state.pipeline_state = None
+            st.markdown(f"✅ DAG: `{dag_name}`\n\n🚀 Running on Airflow immediately...")
+            with st.spinner("🚀 Running pipeline..."):
+                msg_text, result_file = pt.run_full_pipeline(
+                    st.session_state.pipeline_data.get("hdfs_path","hdfs://localhost:9000/data"),
+                    st.session_state.pipeline_data.get("table_name","data"),
+                    dag_name,
+                    "@once"
+                )
+            st.session_state.pipeline_data = {}
+
+        elif state == "WAIT_AIRFLOW_SCHEDULE_PATH":
+            full, hdfs_base, table_name = parse_hdfs_path(prompt)
+            st.session_state.pipeline_data["hdfs_path"] = hdfs_base
+            st.session_state.pipeline_data["table_name"] = table_name
+            st.session_state.pipeline_state = "WAIT_AIRFLOW_SCHEDULE_DAGNAME"
+            msg_text = f"✅ Path: `{full}`\n\n✈️ **What should the Airflow DAG be named?**"
+
+        elif state == "WAIT_AIRFLOW_SCHEDULE_DAGNAME":
+            dag_name = prompt.strip().replace(".py","").replace(" ","_").replace("-","_").replace(".","_")
+            st.session_state.pipeline_data["dag_name"] = dag_name
+            st.session_state.pipeline_state = "WAIT_AIRFLOW_SCHEDULE_INPUT"
+            st.session_state["show_schedule_picker"] = True
+            st.rerun()
+
+        elif state == "WAIT_AIRFLOW_SCHEDULE_INPUT":
+            if st.session_state.get("picked_schedule"):
+                schedule = st.session_state["picked_schedule"]
+                st.session_state["picked_schedule"] = ""
+                st.session_state.pipeline_state = None
+                st.markdown(f"✅ Schedule: `{schedule}`\n\n🚀 Submitting to Airflow...")
+                with st.spinner("🚀 Running pipeline on Airflow..."):
+                    msg_text, result_file = pt.run_full_pipeline(
+                        st.session_state.pipeline_data.get("hdfs_path","hdfs://localhost:9000/data"),
+                        st.session_state.pipeline_data.get("table_name","data"),
+                        st.session_state.pipeline_data.get("dag_name","my_dag"),
+                        schedule
+                    )
+                st.session_state.pipeline_data = {}
+            else:
+                msg_text = "⏰ Please **pick a schedule** using the buttons above ↑"
+
+        elif state == "WAIT_TABLE_NAME":
+            table_name = prompt.strip().replace(".py","").replace(" ","_").replace("-","_").replace(".","_").lower()
+            st.session_state.pipeline_data["table_name"] = table_name
+            st.session_state.pipeline_state = "WAIT_DAG_NAME"
+            msg_text = f"✅ Table name: `{prompt.strip()}`\n\n✈️ **What should the Airflow DAG be named?**"
+
+        elif state == "WAIT_DAG_NAME":
+            dag_name = prompt.strip().replace(".py","").replace(" ","_").replace("-","_").replace(".","_")
+            st.session_state.pipeline_data["dag_name"] = dag_name
+            st.session_state.pipeline_state = "WAIT_SCHEDULE"
+            st.session_state["show_schedule_picker"] = True
+            msg_text = f"✅ DAG name: `{dag_name}`\n\n⏰ **Pick a schedule below:**"
+
+        elif state == "WAIT_SCHEDULE":
+            if st.session_state.get("picked_schedule"):
+                schedule = st.session_state["picked_schedule"]
+                st.session_state["picked_schedule"] = ""
+                st.session_state.pipeline_state = None
+                st.markdown(f"✅ Schedule: `{schedule}`\n\n⚡ Running pipeline...")
+                with st.spinner("🚀 Running full pipeline..."):
+                    msg_text, result_file = pt.run_full_pipeline(
+                        st.session_state.pipeline_data["hdfs_path"],
+                        st.session_state.pipeline_data["table_name"],
+                        st.session_state.pipeline_data["dag_name"],
+                        schedule
+                    )
+                st.session_state.pipeline_data = {}
+            else:
+                msg_text = "⏰ Please **pick a schedule** using the buttons above ↑"
+
+        elif state == "WAIT_TABLE_NAME_ONLY":
+            table_name = prompt.strip().replace(".py","").replace(" ","_").replace("-","_").replace(".","_").lower()
+            if "/" in table_name:
+                table_name = table_name.rstrip("/").split("/")[-1]
+            st.session_state.pipeline_state = None
+            hdfs_base = st.session_state.pipeline_data.get("hdfs_path","hdfs://localhost:9000/data")
+            full_path = f"{hdfs_base}/{table_name}"
+            st.markdown(f"✅ Table: `{table_name}`\n\n📍 Full path: `{full_path}`\n\n⚡ Storing to HDFS as Iceberg...")
+            with st.spinner("📦 Storing to HDFS in Iceberg format..."):
+                msg_text, result_file = pt.store_to_hdfs_iceberg(hdfs_base, table_name)
+            st.session_state.pipeline_data = {}
+
+        elif state == "WAIT_MYSQL_DB":
+            st.session_state.pipeline_data["mysql_db"] = prompt.strip()
+            st.session_state.pipeline_state = "WAIT_MYSQL_TABLE"
+            msg_text = f"✅ Database: `{prompt.strip()}`\n\n📋 **What is the MySQL table name?**"
+
+        elif state == "WAIT_MYSQL_TABLE":
+            st.session_state.pipeline_data["mysql_table"] = prompt.strip()
+            st.session_state.pipeline_state = None
+            with st.spinner("🔄 Loading from MySQL..."):
+                db = st.session_state.pipeline_data["mysql_db"]
+                table = prompt.strip()
+                msg_text, result_df = dt.load_from_mysql("localhost","root","",db,table)
+                if result_df is not None:
+                    dt.store["df"] = result_df
+                    dt.store["filename"] = f"{table}.csv"
+                    st.session_state.data_info = f"Rows:{result_df.shape[0]}, Cols:{result_df.shape[1]}, Columns:{list(result_df.columns)}"
+                    st.session_state["loaded_filename"] = f"{table}.csv"
+                    msg_text += "\n\n💡 Now say **'push to hdfs'** to push to HDFS!"
+            st.session_state.pipeline_data = {}
+
+        elif state == "WAIT_MYSQL_PUSH_TABLE":
+            table_name = prompt.strip().replace(" ","_").lower()
+            st.session_state.pipeline_state = None
+            with st.spinner(f"📤 Pushing to MySQL table `{table_name}`..."):
+                msg_text, result_df = dt.push_to_mysql("localhost","root","","de_agent_db",table_name)
+            st.session_state.pipeline_data = {}
+
+        else:
+            raw = agent.get_response(prompt, st.session_state.data_info)
+
+            if "ACTION:RUN_AIRFLOW_SCHEDULE" in raw:
+                if dt.store["df"] is None:
+                    msg_text = "❌ No dataset loaded. Please upload a dataset first!"
+                else:
+                    st.session_state.pipeline_state = "WAIT_AIRFLOW_SCHEDULE_PATH"
+                    msg_text = "🚀 **Airflow Pipeline with Schedule**\n\n📁 Enter full HDFS path:\n`hdfs://localhost:9000/path/folder/tablename`"
+            elif "ACTION:RUN_AIRFLOW" in raw:
+                if dt.store["df"] is None:
+                    msg_text = "❌ No dataset loaded. Please upload a dataset first!"
+                else:
+                    st.session_state.pipeline_state = "WAIT_AIRFLOW_IMMEDIATE_PATH"
+                    msg_text = "🚀 **Run on Airflow (immediately)**\n\n📁 Enter full HDFS path:\n`hdfs://localhost:9000/path/folder/tablename`"
+            elif "ACTION:STORE_HDFS_ICEBERG" in raw:
+                if dt.store["df"] is None:
+                    msg_text = "❌ No dataset loaded. Please upload a dataset first!"
+                else:
+                    st.session_state.pipeline_state = "WAIT_ICEBERG_FULLPATH"
+                    msg_text = "📦 **Store to HDFS as Iceberg**\n\n📁 Enter full HDFS path:\n`hdfs://localhost:9000/path/folder/tablename`"
+            elif "ACTION:STORE_HDFS" in raw:
+                if dt.store["df"] is None:
+                    msg_text = "❌ No dataset loaded. Please upload a dataset first!"
+                else:
+                    st.session_state.pipeline_state = "WAIT_PARQUET_FULLPATH"
+                    msg_text = "📤 **Store to HDFS as Parquet**\n\n📁 Enter full HDFS path:\n`hdfs://localhost:9000/path/folder/filename`"
+            elif "ACTION:PUSH_MYSQL" in raw:
+                if dt.store["df"] is None:
+                    msg_text = "❌ No dataset loaded. Please upload a dataset first!"
+                else:
+                    st.session_state.pipeline_state = "WAIT_MYSQL_PUSH_TABLE"
+                    msg_text = "🗄️ **Push to MySQL**\n\n📋 **What should the table name be?**"
+            elif "ACTION:LOAD_MYSQL" in raw:
+                st.session_state.pipeline_state = "WAIT_MYSQL_DB"
+                msg_text = "🗄️ **MySQL Load**\n\n📋 **What is the database name?**"
+            elif "ACTION:REMOVE_NULLS" in raw:
+                strategy = "fill" if "fill" in raw else "drop"
+                msg_text, result_df = ct.remove_nulls(strategy)
+            elif "ACTION:REMOVE_DUPLICATES" in raw:
+                msg_text, result_df = ct.remove_duplicates()
+            elif "ACTION:FIND_NULLS" in raw:
+                msg_text, result_df = ct.find_nulls()
+            elif "ACTION:FILTER" in raw:
+                try:
+                    parts = raw.split("ACTION:FILTER:")[1].split(":")
+                    msg_text, result_df = tt.filter_data(parts[0].strip(),parts[1].strip(),parts[2].strip())
+                except:
+                    msg_text = "❌ Try: 'filter Price > 1000'"
+            elif "ACTION:SORT" in raw:
+                try:
+                    parts = raw.split("ACTION:SORT:")[1].split(":")
+                    msg_text, result_df = tt.sort_data(parts[0].strip(), parts[1].strip() if len(parts)>1 else "asc")
+                except:
+                    msg_text = "❌ Try: 'sort by Price descending'"
+            elif "ACTION:COMPARE" in raw:
+                try:
+                    parts = raw.split("ACTION:COMPARE:")[1].split(":")
+                    msg_text, result_df = tt.compare_columns(parts[0].strip(),parts[1].strip())
+                except:
+                    msg_text = "❌ Try: 'compare col1 and col2'"
+            elif "ACTION:RENAME" in raw:
+                try:
+                    parts = raw.split("ACTION:RENAME:")[1].split(":")
+                    msg_text, result_df = tt.rename_column(parts[0].strip(),parts[1].strip())
+                except:
+                    msg_text = "❌ Try: 'rename sales to revenue'"
+            elif "ACTION:DROP_COLUMN" in raw:
+                try:
+                    col = raw.split("ACTION:DROP_COLUMN:")[1].strip()
+                    msg_text, result_df = tt.drop_column(col)
+                except:
+                    msg_text = "❌ Try: 'drop column id'"
+            elif "ACTION:GENERATE_PYSPARK" in raw:
+                try:
+                    table = raw.split("ACTION:GENERATE_PYSPARK:")[1].strip()
+                    msg_text, result_file = pt.generate_pyspark_code(table)
+                except:
+                    msg_text, result_file = pt.generate_pyspark_code("my_table")
+            elif "ACTION:GENERATE_DAG" in raw:
+                try:
+                    parts = raw.split("ACTION:GENERATE_DAG:")[1].split(":")
+                    msg_text, result_file = pt.generate_dag(parts[0].strip(), parts[1].strip() if len(parts)>1 else "@daily")
+                except:
+                    msg_text, result_file = pt.generate_dag("my_pipeline")
+            elif "ACTION:GENERATE_SQL" in raw:
+                try:
+                    table = raw.split("ACTION:GENERATE_SQL:")[1].strip()
+                    msg_text, result_file = pt.generate_sql(table)
+                except:
+                    msg_text, result_file = pt.generate_sql("my_table")
+            elif "ACTION:DETECT_SCHEMA" in raw:
+                msg_text, result_file = pt.detect_schema()
+            elif "ACTION:BUILD_PIPELINE" in raw:
+                try:
+                    name = raw.split("ACTION:BUILD_PIPELINE:")[1].strip()
+                    msg_text, result_file = pt.build_pipeline(name)
+                except:
+                    msg_text = "❌ Try: 'build pipeline my_pipeline'"
+            else:
+                msg_text = raw
+
+        st.markdown(msg_text)
+        entry = {"role":"assistant","content":msg_text,"filepath":result_file}
+
+        if result_df is not None:
+            st.dataframe(result_df, use_container_width=True)
+            entry["dataframe"] = result_df
+            if dt.store["df"] is not None:
+                d = dt.store["df"]
+                st.session_state.data_info = f"Rows:{d.shape[0]}, Cols:{d.shape[1]}, Columns:{list(d.columns)}"
+
+        if result_file and os.path.exists(result_file):
+            with open(result_file, "rb") as f:
+                st.download_button(
+                    f"⬇️ Download {os.path.basename(result_file)}",
+                    f.read(), file_name=os.path.basename(result_file),
+                    key=f"dl_{os.path.basename(result_file)}_{len(st.session_state.messages)}"
+                )
+
+        st.session_state.messages.append(entry)

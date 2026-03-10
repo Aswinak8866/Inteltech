@@ -1,0 +1,18 @@
+date: object
+adj close: float64
+close: float64
+high: float64
+low: float64
+open: float64
+volume: int64
+ma_7: float64
+ma_30: float64
+ma_90: float64
+daily_return: float64
+volatility_7: float64
+volatility_30: float64
+rsi: float64
+macd: float64
+macd_signal: float64
+bb_upper: float64
+bb_lower: float64
