@@ -22,7 +22,7 @@ HOME_AF=os.path.expanduser("~/airflow")
 os.environ["AIRFLOW_HOME"]=HOME_AF
 AIRFLOW_VERSION="2.10.5"
 MODEL="google/gemma-3-12b-it:free"
-KEY="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"
+KEY="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"
 
 def ok(m):   console.print(f"[bold green]  OK  {m}[/bold green]")
 def warn(m): console.print(f"[bold yellow]  WARN  {m}[/bold yellow]")
@@ -123,7 +123,7 @@ def step3():
     py=f"{sys.version_info.major}.{sys.version_info.minor}"
     info(f"Python {py}")
     runfix("pip3 install --upgrade pip setuptools wheel --break-system-packages","Upgrade pip")
-    run("pip3 install "alembic<2.0" --break-system-packages")
+    run("pip3 install 'alembic<2.0' --break-system-packages")
     con=f"https://raw.githubusercontent.com/apache/airflow/constraints-{AIRFLOW_VERSION}/constraints-{py}.txt"
     try:
         use=requests.head(con,timeout=10).status_code==200
