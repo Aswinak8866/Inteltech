@@ -112,14 +112,54 @@ def afok():
     f,_=run("airflow version 2>/dev/null",t=15)
     return f
 
+# ─── PERMANENT FIX: smart version + constraint resolver ───────────────────────
+AIRFLOW_STABLE_VERSIONS=["2.9.3","2.9.2","2.8.4","2.8.3","2.7.3"]
+
+def constraint_url(af_ver, py_ver):
+    return f"https://raw.githubusercontent.com/apache/airflow/constraints-{af_ver}/constraints-{py_ver}.txt"
+
+def constraint_exists(url):
+    try:
+        r=requests.head(url,timeout=10)
+        return r.status_code==200
+    except: return False
+
+def best_version():
+    """Find the best Airflow version + constraint that actually exists on GitHub."""
+    py=f"{sys.version_info.major}.{sys.version_info.minor}"
+    info(f"Python version: {py}")
+    for af_ver in AIRFLOW_STABLE_VERSIONS:
+        url=constraint_url(af_ver,py)
+        info(f"Checking constraints for airflow=={af_ver} ...")
+        if constraint_exists(url):
+            ok(f"Found valid constraints: airflow=={af_ver}")
+            return af_ver, url
+    # Last resort: no constraints
+    warn("No constraints file found, installing without constraints")
+    return AIRFLOW_STABLE_VERSIONS[0], None
+
 def instaf():
     console.print(Panel("[bold]STEP 2 - Install Airflow[/bold]",border_style="blue"))
-    py=str(sys.version_info.major)+"."+str(sys.version_info.minor)
-    con="https://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-"+py+".txt"
     runfix("pip3 install --upgrade pip --break-system-packages","Upgrade pip")
-    s,_=runfix("pip3 install apache-airflow==2.8.1 --constraint "+con+" --break-system-packages","Install Airflow 2.8.1")
-    if not s: runfix("pip3 install apache-airflow --break-system-packages","Install Airflow simple")
+
+    af_ver, con_url = best_version()
+
+    if con_url:
+        cmd=f'pip3 install "apache-airflow=={af_ver}" --constraint "{con_url}" --break-system-packages'
+    else:
+        cmd=f'pip3 install "apache-airflow=={af_ver}" --break-system-packages'
+
+    s,o=runfix(cmd, f"Install Airflow {af_ver}")
+
+    if not s:
+        # Fallback: try each version without constraints
+        for fallback_ver in AIRFLOW_STABLE_VERSIONS:
+            warn(f"Trying fallback: airflow=={fallback_ver} (no constraints)")
+            s,o=runfix(f'pip3 install "apache-airflow=={fallback_ver}" --break-system-packages', f"Fallback airflow=={fallback_ver}")
+            if s: break
+
     return s
+# ──────────────────────────────────────────────────────────────────────────────
 
 def initdb():
     console.print(Panel("[bold]STEP 3 - Init DB[/bold]",border_style="blue"))
