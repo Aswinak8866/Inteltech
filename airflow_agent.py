@@ -22,7 +22,7 @@ HOME_AF=os.path.expanduser("~/airflow")
 os.environ["AIRFLOW_HOME"]=HOME_AF
 AIRFLOW_VERSION="2.10.5"
 MODEL="google/gemma-3-12b-it:free"
-KEY="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"
+KEY="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"
 
 def ok(m):   console.print(f"[bold green]  OK  {m}[/bold green]")
 def warn(m): console.print(f"[bold yellow]  WARN  {m}[/bold yellow]")
