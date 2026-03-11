@@ -178,13 +178,10 @@ def main():
         f"  Ubuntu   : [green]24.04[/green]",
         border_style="cyan",padding=(1,4)))
     console.print()
-    console.print(Panel("[bold]Database Config[/bold]",border_style="yellow"))
-    db=Prompt.ask("  DB name",default="airflow")
-    user=Prompt.ask("  DB user",default="airflow")
-    pw=Prompt.ask("  DB password",default="airflow123")
-    ps=Prompt.ask("  Port",default="8080")
-    try: port=int(ps)
-    except: port=8080
+    db="airflow"
+    user="airflow"
+    pw="airflow123"
+    port=8080
     s,o=run("airflow version 2>/dev/null",t=15)
     if s:
         ver=re.search(r"[\d]+\.[\d]+\.[\d]+",o)
