@@ -123,6 +123,7 @@ def step3():
     py=f"{sys.version_info.major}.{sys.version_info.minor}"
     info(f"Python {py}")
     runfix("pip3 install --upgrade pip setuptools wheel --break-system-packages","Upgrade pip")
+    run("pip3 install "alembic<2.0" --break-system-packages")
     con=f"https://raw.githubusercontent.com/apache/airflow/constraints-{AIRFLOW_VERSION}/constraints-{py}.txt"
     try:
         use=requests.head(con,timeout=10).status_code==200
