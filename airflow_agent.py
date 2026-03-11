@@ -147,9 +147,9 @@ def step5():
     p=Prompt.ask("  Password",password=True)
     p2=Prompt.ask("  Confirm",password=True)
     while p!=p2: warn("No match"); p=Prompt.ask("  Password",password=True); p2=Prompt.ask("  Confirm",password=True)
-    fn=Prompt.ask("  First name",default="Admin")
-    ln=Prompt.ask("  Last name",default="User")
-    em=Prompt.ask("  Email",default=f"{u}@airflow.local")
+    fn="Admin"
+    ln="User"
+    em=f"{u}@airflow.local"
     runfix(f"airflow users create --username {u} --password {p} --firstname {fn} --lastname {ln} --role Admin --email {em}",f"Create {u}")
     ok(f"User {u} created"); return u
 
