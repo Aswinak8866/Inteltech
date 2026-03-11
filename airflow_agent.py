@@ -113,7 +113,7 @@ def afok():
     return f
 
 # ─── PERMANENT FIX: smart version + constraint resolver ───────────────────────
-AIRFLOW_STABLE_VERSIONS=["2.9.3","2.9.2","2.8.4","2.8.3","2.7.3"]
+AIRFLOW_STABLE_VERSIONS=["2.10.2","2.10.1","2.10.0","2.9.3","2.9.2"]
 
 def constraint_url(af_ver, py_ver):
     return f"https://raw.githubusercontent.com/apache/airflow/constraints-{af_ver}/constraints-{py_ver}.txt"
